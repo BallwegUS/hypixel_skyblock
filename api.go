@@ -82,34 +82,83 @@ func GetProducts() (int, map[string]Product) {
 	return data.LastUpdated, data.Products
 }
 
+func GetRecentlyEndedAuctions() (int, []EndedAuction) {
+	data := new(EndedAuctionReturn)
+
+	err := call_api(api_url+"/skyblock/ended_auctions", data, map[string]string{})
+
+	if err != nil {
+		fmt.Println(err)
+		return -1, nil
+	}
+
+	if !data.Success {
+		fmt.Println("Error calling the api")
+		return -1, nil
+	}
+
+	return data.LastUpdated, data.Auctions
+}
+
 func GetAuctions() []AuctionData {
-	page := 0
+	semaphoreChan := make(chan struct{}, 5)
+	resultsChan := make(chan *AuctionReturn)
 	auctions := []AuctionData{}
+	cache := AuctionCache{}
 
-	for {
-		strpage := strconv.FormatInt(int64(page), 10)
-		fmt.Println("Getting page " + strpage)
-		data := AuctionReturn{}
-		params := map[string]string{}
-		params["page"] = strpage
-		err := call_api(api_url+"/skyblock/auctions", &data, params)
-		if err != nil {
-			panic(err)
-		}
+	err := Load("auctions", &cache)
+	if err == nil && time.Now().Sub(cache.LastUpdated).Minutes() < 5 {
+		return cache.Auctions
+	}
 
-		if data.Success {
-			// do stuff with the results
-			for _, auction := range data.Auctions {
-				auctions = append(auctions, auction)
+	data := AuctionReturn{}
+	params := map[string]string{}
+	params["page"] = "0"
+	err = call_api(api_url+"/skyblock/auctions", &data, params)
+	if err != nil {
+		panic(err)
+	}
+
+	if data.Success {
+		auctions = append(auctions, data.Auctions...)
+	}
+
+	page := 1
+	for page <= data.TotalPages {
+		go func(p string) {
+			semaphoreChan <- struct{}{}
+			params := map[string]string{}
+			params["page"] = p
+			d := AuctionReturn{}
+			err = call_api(api_url+"/skyblock/auctions", &d, params)
+			if err != nil {
+				fmt.Println(err)
+				<-semaphoreChan
+				return
 			}
+			resultsChan <- &d
+			<-semaphoreChan
+		}(strconv.FormatInt(int64(page), 10))
+		page += 1
+	}
+
+	resultCount := 1
+	for {
+		resultCount += 1
+		result := <-resultsChan
+		if result.Success {
+			auctions = append(auctions, result.Auctions...)
 		}
 
-		if page == data.TotalPages {
+		if resultCount == data.TotalPages {
 			break
-		} else {
-			page = page + 1
 		}
 	}
+
+	cache = AuctionCache{}
+	cache.LastUpdated = time.Now()
+	cache.Auctions = auctions
+	Save("auctions", cache)
 
 	return auctions
 }
