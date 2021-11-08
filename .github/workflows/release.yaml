@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+jobs:
+  create-release:
+    name: Create Patch Release
+    if: (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'create-release')) || github.event.inputs.release_type == 'continuous'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Compute release tag
+        id: compute_tag
+        uses: craig-day/compute-tag@v10
+        with:
+          github_token: ${{ github.token }}
+          version_scheme: continuous
+          version_type: major
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1.1.4
+        with:
+          tag_name: ${{ steps.compute_tag.outputs.next_tag }}
+          release_name: ${{ steps.compute_tag.outputs.next_tag }}
+          commitish: ${{ github.git_ref }}
+          body: |
+            See [changes since last release](https://github.com/${{ github.repository }}/compare/${{ steps.compute_tag.outputs.previous_tag }}..${{ steps.compute_tag.outputs.next_tag }}) for release details.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
