@@ -7,7 +7,7 @@ on:
 
 jobs:
   create-release:
-    name: Create Patch Release
+    name: Create Release
     runs-on: ubuntu-latest
     if: (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'create-release')) || github.event.inputs.release_type == 'continuous'
     steps:
